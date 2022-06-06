@@ -1,0 +1,5 @@
+* Add "Hello World" Django application into the "application" folder.
+* Sort out `move_files.sh`
+    - Does it use the right folder paths?
+    - Is it even necessary?
+* Why do we use `|| exit 0` in run_be_tests.sh?

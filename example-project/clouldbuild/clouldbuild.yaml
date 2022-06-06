@@ -1,0 +1,66 @@
+steps:
+  # Try to pull existing images, so that we can use them as caches to speed up/avoid rebuilding
+  - name: 'gcr.io/cloud-builders/docker'
+    id: pull-application-image
+    entrypoint: 'bash'
+    args: ['-c', 'docker pull gcr.io/example-project/application:latest || exit 0']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: pull-compose-image
+    entrypoint: 'bash'
+    args: ['-c', 'docker pull gcr.io/example-project/docker-compose:latest || exit 0']
+
+  # Build the main application image, using cached layers if possible
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build-application-image
+    args:
+      [
+        'build',
+        '-t',
+        'gcr.io/example-project/application:latest',
+        '--cache-from',
+        'gcr.io/example-project/application:latest',
+        '-f',
+        './Dockerfile',
+        '.',
+      ]
+    waitFor: ['pull-application-image']
+
+  # Build docker-compose image for running Cypress Tests
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-docker-compose-image'
+    entrypoint: 'bash'
+    args: ['-c', './cloudbuild/docker-compose/build_image.sh']
+    waitFor: ['pull-compose-image']
+
+  # Prepare files
+  - name: 'gcr.io/example-project/deploy:latest'
+    id: prepare-workspace
+    entrypoint: 'bash'
+    args: ['-c', './cloudbuild/move_files.sh']
+    waitFor: ['build-application-image']
+
+  # BE Tests
+  - name: 'gcr.io/example-project/deploy:latest'
+    id: 'run-be-tests'
+    entrypoint: 'bash'
+    args: ['-c', './cloudbuild/run_be_tests.sh']
+    waitFor: ['prepare-workspace']
+
+  # Cypress Tests
+  - name: 'gcr.io/example-project/docker-compose:latest'
+    id: 'run-cypress-tests'
+    entrypoint: 'bash'
+    args: ['-c', './cloudbuild/run_cypress_tests.sh']
+    waitFor: ['build-application-image', 'build-docker-compose-image']
+
+  # Deploy to the interwebs!
+  - name: 'gcr.io/example-project/application:latest'
+    entrypoint: 'bash'
+    args: ['-c', './cloudbuild/deploy.sh']
+    waitFor: ['build-application-image', 'run-be-tests', 'run-cypress-tests']
+    timeout: '1600s'
+
+timeout: 3600s
+images:
+  - gcr.io/example-project/application

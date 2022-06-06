@@ -1,0 +1,39 @@
+version: "3.4"
+
+services:
+  application:
+    image: gcr.io/example-project/application:latest
+    container_name: application
+    command: python manage.py runserver
+    ports:
+      - "8000:8000"
+
+  cypress:
+    # We're using the off-the-shelf Cypress image here, but if we want to install plugins for Cypress
+    # then we may need to either (1) build our own custom Cypress image in which we install the
+    # plugins, or (2) add another script into the `entrypoint` below to install them before we run
+    # the tests.
+    image: cypress/included:9.1.1
+    volumes:
+      # Note that these are linking from the /workspace volume of the Docker container that Cloud
+      # Build is running (our customer docker-compose image), to the volume of *this* container
+      # which is being run by that container!
+      - /workspace/cloudbuild:/cloudbuild
+      - /workspace/cypress:/cypress
+      - /workspace/node_modules:/node_modules
+    working_dir: /
+    # We override the entrypoint in order to inject the wait_for_application.js script before the
+    # cypress command runs. Even though we have `depends_on: application`, docker-compose doesn't
+    # wait for the server to be *ready*, only for the container to be started. Similarly, having
+    # a separate service which runs a script to wait for the application to be ready won't work for
+    # the same reason. Also note that doing `docker-compose up application` as a separate command
+    #  and waiting for it to be ready before running this container also doesn't work, because we
+    # run this container with `docker-compose run` which starts *new* copies of the required
+    # container dependencies, so any that we've started up in advance don't help!
+    entrypoint: /bin/bash -c "node /cloudbuild/wait_for_application.js && cypress run --spec /cypress/integration/*.js --config-file /cloudbuild/cypress.json"
+
+
+networks:
+  default:
+    external:
+      name: cloudbuild
